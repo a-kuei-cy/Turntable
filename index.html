@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抽獎系統 - 管理者後台與前台視覺抽獎</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .login { text-align: center; padding: 50px 20px; }
+        .login input { padding: 10px; margin: 10px; width: 200px; }
+        .login button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        .admin-panel, .frontend { display: none; }
+        .admin-panel.active, .frontend.active { display: block; }
+        .tabs { display: flex; justify-content: space-around; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; background: #ddd; cursor: pointer; border-radius: 5px 5px 0 0; }
+        .tab.active { background: #4CAF50; color: white; }
+        .tab-content { background: white; padding: 20px; border-radius: 0 0 5px 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f2f2f2; }
+        button { padding: 5px 10px; background: #2196F3; color: white; border: none; cursor: pointer; margin: 2px; }
+        button:hover { background: #0b7dda; }
+        .delete { background: #f44336; }
+        .delete:hover { background: #da190b; }
+        .add-btn { background: #4CAF50; }
+        .import-btn, .export-btn { background: #FF9800; }
+        .draw-btn { padding: 15px 30px; font-size: 18px; background: #FF5722; color: white; border: none; cursor: pointer; border-radius: 50px; transition: transform 0.2s; }
+        .draw-btn:hover { transform: scale(1.05); }
+        .draw-area { text-align: center; margin: 50px 0; font-size: 24px; min-height: 100px; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .animation { animation: roll 2s ease-in-out infinite; color: #FF5722; font-weight: bold; }
+        @keyframes roll { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(20px); } }
+        .stats { display: flex; justify-content: space-around; margin: 20px 0; }
+        .stat-card { background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); flex: 1; margin: 0 10px; }
+        canvas { max-width: 100%; height: 300px; }
+        .award-setup { margin: 10px 0; }
+        .award-setup input { padding: 5px; margin: 5px; width: 100px; }
+        .participant-list { max-height: 300px; overflow-y: auto; }
+        @media (max-width: 768px) { .tabs { flex-direction: column; } .stats { flex-direction: column; } table { font-size: 12px; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 登入畫面 -->
+        <div id="login" class="login">
+            <h1>抽獎系統登入</h1>
+            <p>管理者密碼：</p>
+            <input type="password" id="password" placeholder="輸入密碼">
+            <br>
+            <button onclick="login()">登入</button>
+            <br><br>
+            <button onclick="showFrontend()">前台抽獎模式</button>
+        </div>
+
+        <!-- 後台管理者面板 -->
+        <div id="admin" class="admin-panel">
+            <h1>抽獎系統 - 管理者後台</h1>
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('participants')">名單管理</div>
+                <div class="tab" onclick="switchTab('awards')">獎項設定</div>
+                <div class="tab" onclick="switchTab('draw')">抽獎執行</div>
+                <div class="tab" onclick="switchTab('stats')">統計視覺化</div>
+            </div>
+            <div id="participants" class="tab-content">
+                <h2>參與者名單</h2>
+                <button class="import-btn" onclick="importList()">匯入名單 (Excel/TXT)</button>
+                <button class="add-btn" onclick="addParticipant()">新增參與者</button>
+                <input type="text" id="newParticipant" placeholder="輸入姓名" style="display:none; padding:5px;">
+                <div class="participant-list">
+                    <table id="participantTable">
+                        <thead><tr><th>姓名</th><th>動作</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="awards" class="tab-content" style="display:none;">
+                <h2>獎項設定</h2>
+                <div class="award-setup">
+                    <input type="text" id="awardName" placeholder="獎項名稱">
+                    <input type="number" id="awardQty" placeholder="數量" min="1">
+                    <input type="text" id="awardLevel" placeholder="等級 (e.g. 一等獎)">
+                    <button class="add-btn" onclick="addAward()">新增獎項</button>
+                </div>
+                <table id="awardTable">
+                    <thead><tr><th>名稱</th><th>數量</th><th>等級</th><th>剩餘</th><th>動作</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div id="draw" class="tab-content" style="display:none;">
+                <h2>抽獎執行</h2>
+                <select id="awardSelect"></select>
+                <button class="draw-btn" onclick="startDraw()">開始抽獎</button>
+                <div id="drawArea" class="draw-area">準備抽獎...</div>
+                <div id="results"></div>
+            </div>
+            <div id="stats" class="tab-content" style="display:none;">
+                <h2>數據統計</h2>
+                <div class="stats">
+                    <div class="stat-card">
+                        <h3>總參與人數</h3>
+                        <p id="totalParticipants">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>已中獎人數</h3>
+                        <p id="winnerCount">0</p>
+                    </div>
+                </div>
+                <canvas id="chart"></canvas>
+                <button class="export-btn" onclick="exportResults()">匯出中獎名單 (Excel)</button>
+            </div>
+            <button onclick="logout()">登出</button>
+        </div>
+
+        <!-- 前台視覺抽獎 -->
+        <div id="frontend" class="frontend">
+            <h1>抽獎活動 - 現場視覺</h1>
+            <div class="draw-area" id="frontendDrawArea">歡迎參與抽獎！請等待主持人開始...</div>
+            <button class="draw-btn" onclick="frontendDraw()" style="display:none;" id="frontendDrawBtn">主持人開始抽獎</button>
+        </div>
+    </div>
+
+    <script>
+        // 數據儲存
+        let participants = JSON.parse(localStorage.getItem('participants')) || [];
+        let awards = JSON.parse(localStorage.getItem('awards')) || [];
+        let winners = JSON.parse(localStorage.getItem('winners')) || [];
+        let currentAwardIndex = 0;
+        let isAdmin = false;
+        let animationInterval;
+        let chart;
+
+        // 登入功能
+        function login() {
+            const pwd = document.getElementById('password').value;
+            if (pwd === 's2860885110') {
+                isAdmin = true;
+                document.getElementById('login').style.display = 'none';
+                document.getElementById('admin').classList.add('active');
+                loadData();
+                updateParticipantTable();
+                updateAwardTable();
+                updateSelect();
+                updateStats();
+                drawChart();
+            } else {
+                alert('密碼錯誤！');
+            }
+        }
+
+        function showFrontend() {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('frontend').classList.add('active');
+        }
+
+        function logout() {
+            isAdmin = false;
+            document.getElementById('admin').classList.remove('active');
+            document.getElementById('frontend').classList.remove('active');
+            document.getElementById('login').style.display = 'block';
+            document.getElementById('password').value = '';
+        }
+
+        // Tab切換
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            event.target.classList.add('active');
+            document.getElementById(tab).style.display = 'block';
+            if (tab === 'stats') drawChart();
+        }
+
+        // 名單管理
+        function importList() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls,.txt';
+            input.onchange = e => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = evt => {
+                    let data;
+                    if (file.name.endsWith('.txt')) {
+                        data = evt.target.result.split('\n').map(line => line.trim()).filter(name => name);
+                    } else {
+                        const workbook = XLSX.read(evt.target.result, {type: 'binary'});
+                        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                        data = XLSX.utils.sheet_to_json(sheet, {header: 1}).flat().filter(name => name);
+                    }
+                    participants = [...new Set([...participants, ...data])]; // 去重
+                    saveData();
+                    updateParticipantTable();
+                    updateStats();
+                };
+                reader.readAsBinaryString(file);
+            };
+            input.click();
+        }
+
+        function addParticipant() {
+            const input = document.getElementById('newParticipant');
+            input.style.display = input.style.display === 'none' ? 'inline' : 'none';
+            if (input.style.display === 'inline') input.focus();
+            else {
+                const name = input.value.trim();
+                if (name) {
+                    if (!participants.includes(name)) {
+                        participants.push(name);
+                        saveData();
+                        updateParticipantTable();
+                        updateStats();
+                        input.value = '';
+                    }
+                }
+            }
+        }
+
+        function deleteParticipant(index) {
+            participants.splice(index, 1);
+            saveData();
+            updateParticipantTable();
+            updateStats();
+        }
+
+        function editParticipant(index) {
+            const name = prompt('編輯姓名：', participants[index]);
+            if (name && name.trim()) {
+                participants[index] = name.trim();
+                saveData();
+                updateParticipantTable();
+            }
+        }
+
+        function updateParticipantTable() {
+            const tbody = document.querySelector('#participantTable tbody');
+            tbody.innerHTML = '';
+            participants.forEach((p, i) => {
+                const tr = tbody.insertRow();
+                tr.insertCell(0).textContent = p;
+                const actions = tr.insertCell(1);
+                actions.innerHTML = `<button onclick="editParticipant(${i})">編輯</button> <button class="delete" onclick="deleteParticipant(${i})">刪除</button>`;
+            });
+        }
+
+        // 獎項設定
+        function addAward() {
+            const name = document.getElementById('awardName').value.trim();
+            const qty = parseInt(document.getElementById('awardQty').value);
+            const level = document.getElementById('awardLevel').value.trim();
+            if (name && qty > 0 && level) {
+                awards.push({name, qty, level, remaining: qty});
+                saveData();
+                updateAwardTable();
+                updateSelect();
+                document.getElementById('awardName').value = '';
+                document.getElementById('awardQty').value = '';
+                document.getElementById('awardLevel').value = '';
+            }
+        }
+
+        function deleteAward(index) {
+            awards.splice(index, 1);
+            saveData();
+            updateAwardTable();
+            updateSelect();
+        }
+
+        function updateAwardTable() {
+            const tbody = document.querySelector('#awardTable tbody');
+            tbody.innerHTML = '';
+            awards.forEach((a, i) => {
+                const tr = tbody.insertRow();
+                tr.insertCell(0).textContent = a.name;
+                tr.insertCell(1).textContent = a.qty;
+                tr.insertCell(2).textContent = a.level;
+                tr.insertCell(3).textContent = a.remaining;
+                const actions = tr.insertCell(4);
+                actions.innerHTML = `<button class="delete" onclick="deleteAward(${i})">刪除</button>`;
+            });
+        }
+
+        function updateSelect() {
+            const select = document.getElementById('awardSelect');
+            select.innerHTML = '';
+            awards.forEach((a, i) => {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `${a.name} (${a.level}) - 剩餘: ${a.remaining}`;
+                select.appendChild(option);
+            });
+        }
+
+        // 抽獎過程
+        function startDraw() {
+            const index = parseInt(document.getElementById('awardSelect').value);
+            if (index === undefined || awards[index].remaining <= 0) {
+                alert('無剩餘獎項！');
+                return;
+            }
+            const available = participants.filter(p => !winners.some(w => w.name === p));
+            if (available.length === 0) {
+                alert('無剩餘參與者！');
+                return;
+            }
+            currentAwardIndex = index;
+            drawAnimation(available);
+        }
+
+        function drawAnimation(available) {
+            const area = document.getElementById('drawArea');
+            let counter = 0;
+            animationInterval = setInterval(() => {
+                const random = available[Math.floor(Math.random() * available.length)];
+                area.innerHTML = `<div class="animation">抽中：${random}</div>`;
+                counter++;
+                if (counter > 20) { // 動畫持續約2秒
+                    clearInterval(animationInterval);
+                    confirmWinner(random);
+                }
+            }, 100);
+        }
+
+        function confirmWinner(name) {
+            const award = awards[currentAwardIndex];
+            award.remaining--;
+            const winner = {name, award: award.name, level: award.level};
+            winners.push(winner);
+            // 從參與者移除
+            const pIndex = participants.indexOf(name);
+            if (pIndex > -1) participants.splice(pIndex, 1);
+            saveData();
+            updateParticipantTable();
+            updateAwardTable();
+            updateSelect();
+            updateStats();
+            drawChart();
+            document.getElementById('drawArea').innerHTML = `恭喜 ${name} 獲得 ${award.level} ${award.name}！`;
+            document.getElementById('results').innerHTML += `<p>中獎：${name} - ${award.name}</p>`;
+        }
+
+        // 前台抽獎
+        function frontendDraw() {
+            const available = participants.filter(p => !winners.some(w => w.name === p));
+            if (available.length === 0) {
+                alert('無剩餘參與者！');
+                return;
+            }
+            const area = document.getElementById('frontendDrawArea');
+            let counter = 0;
+            animationInterval = setInterval(() => {
+                const random = available[Math.floor(Math.random() * available.length)];
+                area.innerHTML = `<div class="animation">抽中：${random}</div>`;
+                counter++;
+                if (counter > 30) {
+                    clearInterval(animationInterval);
+                    area.innerHTML = `恭喜 ${random} 中獎！（請聯繫主持人確認獎項）`;
+                }
+            }, 80);
+        }
+
+        // 統計與視覺化
+        function updateStats() {
+            document.getElementById('totalParticipants').textContent = participants.length + winners.length;
+            document.getElementById('winnerCount').textContent = winners.length;
+        }
+
+        function drawChart() {
+            const ctx = document.getElementById('chart').getContext('2d');
+            if (chart) chart.destroy();
+            const awardCounts = {};
+            winners.forEach(w => awardCounts[w.award] = (awardCounts[w.award] || 0) + 1);
+            chart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(awardCounts),
+                    datasets: [{ data: Object.values(awardCounts), backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'] }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        // 匯出
+        function exportResults() {
+            const wb = XLSX.utils.book_new();
+            const wsData = [['姓名', '獎項', '等級']];
+            winners.forEach(w => wsData.push([w.name, w.award, w.level]));
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            XLSX.utils.book_append_sheet(wb, ws, '中獎名單');
+            XLSX.writeFile(wb, '中獎名單.xlsx');
+        }
+
+        // 儲存數據
+        function saveData() {
+            localStorage.setItem('participants', JSON.stringify(participants));
+            localStorage.setItem('awards', JSON.stringify(awards));
+            localStorage.setItem('winners', JSON.stringify(winners));
+        }
+
+        function loadData() {
+            participants = JSON.parse(localStorage.getItem('participants')) || [];
+            awards = JSON.parse(localStorage.getItem('awards')) || [];
+            winners = JSON.parse(localStorage.getItem('winners')) || [];
+        }
+
+        // 初始化
+        if (isAdmin) loadData();
+    </script>
+</body>
+</html>
